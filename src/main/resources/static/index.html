@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <title>DeepSeek 智能助手</title>
+    <style>
+        .chat-container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        .chat-history {
+            height: 500px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+        }
+
+        .message {
+            margin: 10px 0;
+            padding: 12px;
+            border-radius: 15px;
+            max-width: 70%;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            background: #e3f2fd;
+            margin-left: auto;
+            border-bottom-right-radius: 3px;
+        }
+
+        .message.assistant {
+            background: #fff;
+            border: 1px solid #eee;
+            margin-right: auto;
+            border-bottom-left-radius: 3px;
+        }
+
+        .message.system {
+            background: #f5f5f5;
+            margin: 10px auto;
+            text-align: center;
+            max-width: 90%;
+            font-size: 0.9em;
+            color: #666;
+        }
+
+        .input-section {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+
+        button {
+            padding: 10px 20px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        .file-section {
+            margin-bottom: 15px;
+        }
+
+        .file-hint {
+            font-size: 0.9em;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+<div class="chat-container">
+    <h2>DeepSeek 智能助手</h2>
+
+    <div class="chat-history" id="chatHistory">
+        <!-- 聊天记录将动态加载到这里 -->
+    </div>
+
+    <div class="file-section">
+        <input type="file" id="fileInput" multiple accept=".pdf,.png,.jpg">
+        <div class="file-hint">支持上传PDF/图片文件（最多5个）</div>
+    </div>
+
+    <div class="input-section">
+        <input type="text" id="messageInput" placeholder="输入你的问题...">
+        <button onclick="sendEnhancedMessage()">发送</button>
+    </div>
+</div>
+
+<script>
+    let chatMessages = [];
+    let userId = null;
+
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        userId = getOrCreateUserId();
+        await loadChatHistory();
+    });
+
+
+    function getOrCreateUserId() {
+        let id = localStorage.getItem('deepseekUserId');
+        if (!id) {
+            id = crypto.randomUUID();
+            localStorage.setItem('deepseekUserId', id);
+        }
+        return id;
+    }
+
+    // 加载历史记录
+    async function loadChatHistory() {
+        try {
+            const response = await fetch(`http://localhost:8080/api/history?userId=${userId}`);
+            if (!response.ok) throw new Error('历史记录加载失败');
+            const history = await response.json();
+            chatMessages = history;
+            renderChatHistory();
+        } catch (error) {
+            console.error('加载历史记录失败:', error);
+        }
+    }
+
+
+    function renderChatHistory() {
+        const container = document.getElementById('chatHistory');
+        container.innerHTML = '';
+
+        chatMessages.forEach(msg => {
+            const div = document.createElement('div');
+            div.className = `message ${msg.role}`;
+
+            // 处理换行显示
+            const contentWithBreaks = msg.content.replace(/\n/g, '<br>');
+            div.innerHTML = `
+                <div class="role-label">${roleToText(msg.role)}</div>
+                <div class="message-content">${contentWithBreaks}</div>
+            `;
+
+            container.appendChild(div);
+        });
+
+        // 自动滚动到底部
+        container.scrollTop = container.scrollHeight;
+    }
+
+
+    function roleToText(role) {
+        return {
+            'user': '您',
+            'assistant': 'AI助手',
+            'system': '系统提示'
+        }[role] || role;
+    }
+
+    // 发送消息
+    async function sendEnhancedMessage() {
+        const input = document.getElementById('messageInput');
+        const fileInput = document.getElementById('fileInput');
+        const message = input.value.trim();
+        const files = fileInput.files;
+
+        if (!message && files.length === 0) {
+            alert('请输入内容或上传文件');
+            return;
+        }
+
+        try {
+            // 添加用户消息到本地记录
+            addLocalMessage('user', message);
+
+            const formData = new FormData();
+            formData.append('message', message);
+            formData.append('userId', userId);
+            Array.from(files).forEach(file => formData.append('files', file));
+
+            const response = await fetch('http://localhost:8080/api/chat', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) throw new Error(`请求失败: ${response.status}`);
+            const aiResponse = await response.text();
+
+            // 添加AI回复到本地记录
+            addLocalMessage('assistant', aiResponse);
+        } catch (error) {
+            showErrorMessage(error.message);
+        } finally {
+            input.value = '';
+            fileInput.value = '';
+        }
+    }
+
+    // 本地添加消息
+    function addLocalMessage(role, content) {
+        chatMessages.push({ role, content });
+        renderChatHistory();
+    }
+
+    // 显示错误信息
+    function showErrorMessage(msg) {
+        const errorMsg = `错误: ${msg}`;
+        addLocalMessage('system', errorMsg);
+    }
+</script>
+</body>
+</html>
